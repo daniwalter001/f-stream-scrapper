@@ -4,9 +4,73 @@ from selectolax.parser import HTMLParser
 import urllib.parse
 import time
 import requests
+from seleniumbase import Driver
+from seleniumbase import page_actions
+import cfscrape
 
 
 host = "https://french-stream.gg/serie/"
+cf_clearance = ''
+headers = {
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+}
+
+
+def getCookie(url=host):
+    try:
+        print("Getting cf cookie...")
+        driver = Driver(headless=False, uc=True)
+        driver.get(url)
+        page_actions.wait_for_element_visible(
+            driver=driver, selector="a.logotype")
+        cf = driver.get_cookie('cf_clearance')
+        print("ok")
+        return cf["value"]
+    except:
+        print("error getting cf cookie...retrying...")
+        return getCookie()
+
+
+def get(url=host):
+    try:
+        print("Get request...")
+        driver = Driver(headless=True, uc=True)
+        driver.get(url)
+        page_actions.wait_for_element_visible(
+            driver=driver, selector="a.logotype")
+        print("ok")
+        html = driver.page_source
+        driver.close()
+        return html
+    except:
+        print("error getting request...retrying...")
+        return get(url=url)
+
+
+def post(url=host, data={}):
+    try:
+        print("Post request...")
+        driver = Driver(headless=True, uc=True)
+        dataString = urllib.parse.urlencode(data)
+        driver.get(url)
+        page_actions.wait_for_element_visible(
+            driver=driver, selector="a.logotype")
+
+        js = '''var xhr = new XMLHttpRequest();
+            xhr.open('POST', \''''+url+'''\', false);
+            xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+            xhr.send(\''''+dataString+'''\');
+            return xhr.response;'''
+        result = driver.execute_script(js)
+        driver.close()
+        return result
+    except:
+        print("error making post request...retrying...")
+        return post(url=url, data=data)
+
+
+def parseLecteurURL(type=""):
+    pass
 
 
 def htmlDataParser(html_page):
@@ -32,13 +96,43 @@ def askToChooseShow(list):
     show_choice = int(input("\nVotre choix: "))
     try:
         assert show_choice > 0
-        # page.goto(url=list[show_choice-1]["url"],
-        #           wait_until="domcontentloaded", timeout=100000)
-
-        res = requests.get(list[show_choice-1]["url"])
-        parseSerieChoiceHTMLToEps(res.text)
+        res = get(list[show_choice-1]["url"])
+        parseSerieChoiceHTMLToEps(res)
     except AssertionError:
         print("Mauvais choix.............Ah oui!\n")
+
+
+def parseEpData(data):
+    print(data["title"])
+    print(data["url"])
+
+    for i, url in enumerate(data['url']):
+        print(f"{i+1}- {url}")
+
+
+def askToChooseEps(list):
+    print('VF / VOSTFR :')
+    print('1- VF')
+    print('2- VOSTFR')
+
+    choix_lang = int(input("Choix: "))
+
+    try:
+        assert choix_lang > 0
+        assert choix_lang < 3
+
+        lang = ["vf", "vostfr"][choix_lang-1]
+
+        print(f'{lang.upper()} ----')
+        for i, ep in enumerate(list[lang]):
+            title = ep.get("title")
+            print("{}- {} ".format(i+1, str(title)))
+        ep_choice = int(input("\nVotre choix: "))
+
+        parseEpData(list[lang][ep_choice])
+
+    except AssertionError:
+        pass
 
 
 def parseSerieChoiceHTMLToEps(html_page):
@@ -60,20 +154,16 @@ def parseSerieChoiceHTMLToEps(html_page):
 
             if 'VF' in title:
                 episodes["vf"].append({
-                    title: urls
+                    'title': title,
+                    'url': urls,
                 })
             elif "VOSTFR" in title:
                 episodes["vostfr"].append({
-                    title: urls
+                    'title': title,
+                    'url': urls,
                 })
 
-    for i in episodes["vf"]:
-        print(i)
-        print("---------")
-
-    for i in episodes["vostfr"]:
-        print(i)
-        print("---------")
+    askToChooseEps(episodes)
 
 
 def search(keyword):
@@ -83,41 +173,35 @@ def search(keyword):
         "subaction": "search",
         "story": keyword
     }
-
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-    res = requests.post(host, data=playload, headers=headers)
-
-    search_results = htmlDataParser(res.text)
-
+    res = post(url=host, data=playload)
+    search_results = htmlDataParser(res)
     askToChooseShow(search_results)
 
 
 def getCatalogue():
-    with sync_playwright() as pw:
-        results = []
+    results = []
+    cf = cfscrape.create_scraper()
 
-        browser = pw.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url=host, wait_until="domcontentloaded", timeout=100000)
+    # last_page_node = page.locator("span.navigation a:last-child")
+    # last_page = int(last_page_node.text_content())
 
-        last_page_node = page.locator("span.navigation a:last-child")
-        # last_page = int(last_page_node.text_content())
+    page_th = 1
+    while page_th <= 1:
+        print(f"Fethcing from page {page_th}...")
+        time.sleep(1)
+        _url = urllib.parse.urljoin(host, f"page/{page_th}")
+        res = get(url=_url)
 
-        page_th = 1
-        while page_th <= 1:
-            print(f"Fethcing from page {page_th}... ")
-            time.sleep(1)
-            page.goto(url=urllib.parse.urljoin(host, f"page/{page_th}"),
-                      wait_until="domcontentloaded", timeout=100000)
+        results.extend(htmlDataParser(res))
 
-            results.extend(htmlDataParser(page.content()))
+        page_th = page_th+1
 
-            page_th = page_th+1
-        askToChooseShow(results)
+    cf.close()
+    askToChooseShow(results)
 
 
 def main():
+    # print(cf_clearance)
     menu = ["Get Catalogue", "Search", "Exit"]
 
     while True:
@@ -143,5 +227,7 @@ def main():
 
 
 if __name__ == "__main__":
+    cf_clearance = ""
+    # cf_clearance = getCookie()
     main()
     # search("The big bang")
