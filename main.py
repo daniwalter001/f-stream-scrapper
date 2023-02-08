@@ -1,15 +1,15 @@
-import json
-from playwright.sync_api import sync_playwright
 from selectolax.parser import HTMLParser
 import urllib.parse
 import time
-import requests
 from seleniumbase import Driver
 from seleniumbase import page_actions
 import cfscrape
+import re
+import requests
 
 
-host = "https://french-stream.gg/serie/"
+# host = "https://french-stream.gg/serie/"
+host = "https://streem.re/serie/"
 cf_clearance = ''
 headers = {
     "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
@@ -40,7 +40,7 @@ def get(url=host):
             driver=driver, selector="a.logotype")
         print("ok")
         html = driver.page_source
-        driver.close()
+        driver.quit()
         return html
     except:
         print("error getting request...retrying...")
@@ -62,15 +62,18 @@ def post(url=host, data={}):
             xhr.send(\''''+dataString+'''\');
             return xhr.response;'''
         result = driver.execute_script(js)
-        driver.close()
+        driver.quit()
         return result
     except:
         print("error making post request...retrying...")
         return post(url=url, data=data)
 
 
-def parseLecteurURL(type=""):
-    pass
+def parseLecteurURL(type="", html=""):
+
+    regex = r"sources: \[\"(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*))\"\]"
+
+    print(re.search(regex, html).groups() or "Actually None")
 
 
 def htmlDataParser(html_page):
@@ -104,10 +107,23 @@ def askToChooseShow(list):
 
 def parseEpData(data):
     print(data["title"])
-    print(data["url"])
-
+    print('-----------------------')
     for i, url in enumerate(data['url']):
-        print(f"{i+1}- {url}")
+        print(f"{i+1}- {url['source']}")
+
+    choix_source = int(input("Choix de source: "))
+
+    try:
+        assert choix_source <= len(data['url'])
+
+        print(data['url'][choix_source-1]["url"])
+
+        res = requests.get(url=data['url'][choix_source-1]["url"])
+        parseLecteurURL(
+            html=res.text, type=data['url'][choix_source-1]["source"])
+
+    except AssertionError:
+        print("Oh mais quand même hein...")
 
 
 def askToChooseEps(list):
@@ -149,8 +165,9 @@ def parseSerieChoiceHTMLToEps(html_page):
     for elt in eps_nodes:
         if (elt.css_first("ul.btnss li > a") and elt.css_first("ul.btnss li > a").attributes['href'] and elt.css_first("span")):
             title = elt.css_first("span").text()
-            urls = [{i.text().strip(): i.attributes["href"]}
-                    for i in elt.css("ul.btnss li > a")]
+            urls = [{"source": i.text().strip(),
+                     "url": i.attributes["href"]
+                     } for i in elt.css("ul.btnss li > a")]
 
             if 'VF' in title:
                 episodes["vf"].append({
@@ -202,7 +219,7 @@ def getCatalogue():
 
 def main():
     # print(cf_clearance)
-    menu = ["Get Catalogue", "Search", "Exit"]
+    menu = ["Get Catalogue", "Get a specific page", "Search", "Exit"]
 
     while True:
         try:
@@ -213,6 +230,9 @@ def main():
             if choice == "1":
                 getCatalogue()
             elif choice == "2":
+                keyword = str(input("Enter keyword: "))
+                search(keyword)
+            elif choice == "3":
                 keyword = str(input("Enter keyword: "))
                 search(keyword)
             elif choice == "0":
