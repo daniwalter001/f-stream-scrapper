@@ -6,6 +6,7 @@ from seleniumbase import page_actions
 import cfscrape
 import re
 import requests
+import pychromecast
 
 
 # host = "https://french-stream.gg/serie/"
@@ -73,7 +74,19 @@ def parseLecteurURL(type="", html=""):
 
     regex = r"sources: \[\"(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*))\"\]"
 
-    print(re.search(regex, html).groups() or "Actually None")
+    link = re.search(regex, html).groups(1)
+    print(link or "Actually None")
+
+    try:
+        chromecasts = pychromecast.get_chromecasts(timeout=6)
+        cast = next(cc for cc in chromecasts if (
+            cc.device.friendly_name == "Mi Box"))
+        cast.wait()
+        print("Device found, sending video")
+        print(cast)
+    except:
+        print("Device no found")
+        return
 
 
 def htmlDataParser(html_page):
@@ -145,7 +158,9 @@ def askToChooseEps(list):
             print("{}- {} ".format(i+1, str(title)))
         ep_choice = int(input("\nVotre choix: "))
 
-        parseEpData(list[lang][ep_choice])
+        print(list[lang])
+
+        parseEpData(list[lang][ep_choice-1])
 
     except AssertionError:
         pass
