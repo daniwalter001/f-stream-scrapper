@@ -7,6 +7,8 @@ import cfscrape
 import re
 import requests
 import pychromecast
+import os
+import subprocess
 
 
 # host = "https://french-stream.gg/serie/"
@@ -70,23 +72,38 @@ def post(url=host, data={}):
         return post(url=url, data=data)
 
 
-def parseLecteurURL(type="", html=""):
+def playWithMPV(url="", referer="", ua=headers["user-agent"]):
+    cmd = f"mpv --http-header-fields=Referer:{referer} {url}"
+
+    print(cmd.split())
+
+    proc = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE)
+    print(proc.stdin)
+    try:
+        output, error = proc.communicate()
+        print("output", output)
+        print("error", error)
+    except BaseException as e:
+        print("error...,", e)
+        proc.kill()
+
+
+def parseLecteurURL(type="", html="", referer=""):
 
     regex = r"sources: \[\"(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*))\"\]"
 
-    link = re.search(regex, html).groups(1)
-    print(link or "Actually None")
+    link = None
+    if re.search(regex, html):
+        link = re.search(regex, html).group(1)
 
-    try:
-        chromecasts = pychromecast.get_chromecasts(timeout=6)
-        cast = next(cc for cc in chromecasts if (
-            cc.device.friendly_name == "Mi Box"))
-        cast.wait()
-        print("Device found, sending video")
-        print(cast)
-    except:
-        print("Device no found")
-        return
+        print(link or "Actually None")
+
+        if link:
+            playWithMPV(url=link, referer=referer, ua=headers["user-agent"])
+        else:
+            print('oh mais attend ou est le lien??? Nn mais quand meme')
+    else:
+        print("File Not found/Deleted...Actually just change your source")
 
 
 def htmlDataParser(html_page):
@@ -107,15 +124,20 @@ def htmlDataParser(html_page):
 
 
 def askToChooseShow(list):
-    for i, show in enumerate(list):
-        print(" {}- {} ".format(i+1, show['title']))
-    show_choice = int(input("\nVotre choix: "))
-    try:
-        assert show_choice > 0
-        res = get(list[show_choice-1]["url"])
-        parseSerieChoiceHTMLToEps(res)
-    except AssertionError:
-        print("Mauvais choix.............Ah oui!\n")
+
+    while True:
+        for i, show in enumerate(list):
+            print(" {}- {} ".format(i+1, show['title']))
+        show_choice = int(input("\nVotre choix: "))
+        if show_choice != 0:
+            try:
+                assert show_choice > 0
+                res = get(list[show_choice-1]["url"])
+                parseSerieChoiceHTMLToEps(res)
+            except AssertionError:
+                print("Mauvais choix.............Ah oui!\n")
+        else:
+            break
 
 
 def parseEpData(data):
@@ -133,7 +155,7 @@ def parseEpData(data):
 
         res = requests.get(url=data['url'][choix_source-1]["url"])
         parseLecteurURL(
-            html=res.text, type=data['url'][choix_source-1]["source"])
+            html=res.text, type=data['url'][choix_source-1]["source"], referer=data['url'][choix_source-1]["url"])
 
     except AssertionError:
         print("Oh mais quand même hein...")
@@ -152,15 +174,17 @@ def askToChooseEps(list):
 
         lang = ["vf", "vostfr"][choix_lang-1]
 
-        print(f'{lang.upper()} ----')
-        for i, ep in enumerate(list[lang]):
-            title = ep.get("title")
-            print("{}- {} ".format(i+1, str(title)))
-        ep_choice = int(input("\nVotre choix: "))
-
-        print(list[lang])
-
-        parseEpData(list[lang][ep_choice-1])
+        while True != 0:
+            print(f'{lang.upper()} ----')
+            for i, ep in enumerate(list[lang]):
+                title = ep.get("title")
+                print("{}- {} ".format(i+1, str(title)))
+            ep_choice = int(input("\nVotre choix: "))
+            if ep_choice != 0:
+                # print(list[lang])
+                parseEpData(list[lang][ep_choice-1])
+            else:
+                break
 
     except AssertionError:
         pass
@@ -207,7 +231,8 @@ def search(keyword):
     }
     res = post(url=host, data=playload)
     search_results = htmlDataParser(res)
-    askToChooseShow(search_results)
+    sorted_list = sorted(search_results, key=lambda x: x["title"])
+    askToChooseShow(sorted_list)
 
 
 def getCatalogue():
